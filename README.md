@@ -85,6 +85,16 @@ The seeded traps run by themselves on start: the "skip approval" email, the dupl
 disagrees, the late "confirmed" that quotes a superseded version, the credit hold, and the open freight dispute.
 Look at `GET /admin/status` and the rep page for the tasks they produce.
 
+## Duplicates and out-of-order mail
+
+- **Doubtful duplicate enquiry** (same customer, same products, quantities within 25%, same city, within 24h of an open case):
+  nothing is quoted and the message is *held*. The rep's task has two buttons: **Duplicate: discard** or **New request: proceed**
+  (also `POST /api/tasks/{id}/duplicate/{discard|proceed}`). Proceed quotes it once; a second click is refused.
+- **Acceptance when a newer message exists:** if the thread shows a later-sent customer message, the older acceptance is simply
+  overtaken and ignored; no person is needed (the newer message is handled on its own merits).
+- **Acceptance when "latest" cannot be proven** (arrived over 2h after it was sent, send time unreadable or ahead of arrival,
+  or two messages with the same send time): no order; the rep is told to ask the customer. Limits are in `core/config.py`.
+
 ## Pages (server-rendered)
 
 `/ui/approvals` (approvers) · `/ui/approvals/{quote}/{version}` (reasons, cost, margin, plan, basis; approve, change, reject) ·

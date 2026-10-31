@@ -56,7 +56,7 @@ whether and what to tell them. A notice stating a new date also needs a sales ma
 |---|---|
 | Reading and de-duplicating mail; matching customers | Approving, changing or rejecting a quote; any discount |
 | Snapshots, promises, prices, flags, routing, verification | Credit exceptions; consent to a split |
-| Soft holds (expire with the quote) and releasing them | Ambiguous dates, conflicting emails, unknown senders or products |
+| Soft holds (expire with the quote) and releasing them | Ambiguous dates, conflicting emails, unknown senders or products; a possible duplicate enquiry (held, then discard or proceed); an acceptance whose "latest" status cannot be proven (delayed mail, tied send times) |
 | Order creation after a valid acceptance of an approved quote, with undo | Late, superseded, unauthorised or changed acceptances |
 | Order confirmation identical to the approved quote | Whether and what the customer is told about a slip |
 | Slip detection, alerts, retries, recovery after a crash | Anything that fails repeatedly (becomes `stuck`) |
