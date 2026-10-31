@@ -59,3 +59,17 @@ def mailbox(data_dir, clock):
     from limitara.standins.mailbox.app import create_app
 
     return _client(create_app, data_dir, "mailbox", clock)
+
+
+@pytest.fixture
+def clients(erp, production, dispatch, crm, mailbox):
+    from limitara.core.clients import Clients
+
+    return Clients.from_http(erp=erp, production=production, dispatch=dispatch, crm=crm, mailbox=mailbox)
+
+
+@pytest.fixture
+def store(tmp_path, clock):
+    from limitara.core.store import CoreStore
+
+    return CoreStore(tmp_path / "core.db", clock)
