@@ -1,6 +1,7 @@
 """What every Core service needs, passed explicitly so tests can swap any part."""
 
-from dataclasses import dataclass
+import threading
+from dataclasses import dataclass, field
 
 from limitara.clock import Clock
 from limitara.core.clients import Clients
@@ -15,6 +16,7 @@ class Ctx:
     store: CoreStore
     clock: Clock
     config: Config
+    lock: threading.RLock = field(default_factory=threading.RLock)  # one worker at a time on shared cases
 
     @property
     def builder(self) -> SnapshotBuilder:
