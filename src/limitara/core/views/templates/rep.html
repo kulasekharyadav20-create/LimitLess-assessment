@@ -1,0 +1,19 @@
+{% extends "base.html" %}{% block body %}
+<h1>Your cases</h1>
+<h2>Waiting for you</h2>
+<table><tr><th>Task</th><th>What</th></tr>{% for t in tasks %}<tr><td>{{ t.kind }}</td><td>{{ t.text }}</td></tr>{% else %}<tr><td colspan="2">Nothing waiting.</td></tr>{% endfor %}</table>
+<h2>Alerts</h2><ul>{% for a in alerts %}<li>{{ a.created_at }} &mdash; {{ a.text }}</li>{% else %}<li>None.</li>{% endfor %}</ul>
+<h2>Cases and quotations</h2>
+<table><tr><th>Case</th><th>Customer</th><th>Status</th><th>Quotation versions</th></tr>
+{% for c in cases %}<tr><td>{{ c.id }}</td><td>{{ c.customer_id }}</td><td>{{ c.status }}</td><td>
+{% for v in c.versions %}<b>{{ c.quotation_id }} v{{ v.version }}</b>: {{ v.status }}
+{% for f in v.flags %}<span class="{{ f.severity }}">[{{ f.code }}]</span> {{ f.detail }}<br>{% endfor %}
+{% if v.status == 'draft' %}
+<form class="inline" method="post" action="/ui/rep/quotes/{{ c.quotation_id }}/{{ v.version }}/submit"><button>Submit for approval</button></form>
+<form class="inline" method="post" action="/ui/rep/quotes/{{ c.quotation_id }}/{{ v.version }}/consent"><button>Record customer consent to split</button></form>
+<form class="inline" method="post" action="/ui/rep/quotes/{{ c.quotation_id }}/{{ v.version }}/discount"><input name="pct" size="3" placeholder="% off"><button>Apply discount (new version)</button></form>
+{% endif %}<br>{% endfor %}</td></tr>{% endfor %}</table>
+<h2>Orders</h2>
+<table><tr><th>Order</th><th>Customer</th><th>Stage</th><th>Promise at risk</th></tr>
+{% for o in orders %}<tr><td><a href="/ui/rep/orders/{{ o.order }}">{{ o.order }}</a></td><td>{{ o.customer }}</td><td>{{ o.stage }}</td><td>{{ 'yes' if o.at_risk else 'no' }}</td></tr>{% else %}<tr><td colspan="4">No orders yet.</td></tr>{% endfor %}</table>
+{% endblock %}

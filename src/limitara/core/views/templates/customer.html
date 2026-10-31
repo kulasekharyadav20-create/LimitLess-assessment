@@ -1,0 +1,6 @@
+{% extends "base.html" %}{% block body %}
+<h1>Your orders</h1>
+<table><tr><th>Order</th><th>Status</th><th>Delivery</th></tr>
+{% for o in orders %}<tr><td><a href="/ui/customer/orders/{{ o.order }}">{{ o.order }}</a></td><td>{{ o.stage }}</td>
+<td>{{ o.delivery_note or (o.shipments|map(attribute='delivery_date')|reject('none')|join(', ')) }}</td></tr>{% else %}<tr><td colspan="3">You have no orders yet.</td></tr>{% endfor %}</table>
+{% endblock %}

@@ -1,0 +1,34 @@
+{% extends "base.html" %}{% block body %}
+<h1>{{ q.quotation }} v{{ q.version }} <small>({{ q.status }})</small></h1>
+<p>Customer {{ q.customer }}. Requested delivery by {{ q.requested_by }}. Offer valid until {{ q.valid_until }}. Created by {{ q.created_by }}.</p>
+<p><em>How we read the request:</em> {{ q.interpretation }}</p>
+<h2>Why this needs your attention</h2>
+<table><tr><th>Flag</th><th>Severity</th><th>Reason</th><th>Sources</th></tr>
+{% for f in q.flags %}<tr><td><b>{{ f.code }}</b></td><td class="{{ f.severity }}">{{ f.severity }}{% if f.role %} ({{ f.role }}){% endif %}</td><td>{{ f.detail }}</td>
+<td>{% for p in f.provenance %}{{ p.record }} read {{ p.read_at }}<br>{% endfor %}</td></tr>{% else %}<tr><td colspan="4">No flags. Routine approval.</td></tr>{% endfor %}</table>
+{% if q.customer_requests %}<div class="note">The customer's email asked for: {{ q.customer_requests|join('; ') }}. These were recorded and <b>not acted on</b>.</div>{% endif %}
+<h2>Prices (internal)</h2>
+<table><tr><th>Product</th><th>Qty</th><th>List</th><th>Terms off</th><th>Rep off</th><th>Unit price</th><th>Cost</th><th>Margin %</th><th>Floor %</th><th>Lowest compliant</th></tr>
+{% for p in q.prices %}<tr><td>{{ p.product }}</td><td>{{ p.qty }}</td><td>{{ p.list_price }}</td><td>{{ p.terms_discount_pct }}</td><td>{{ p.rep_discount_pct }}</td>
+<td>{{ p.unit_price }}</td><td>{{ p.cost }}</td><td>{{ p.margin_pct[:5] }}</td><td>{{ p.floor_pct }}</td><td>{{ p.floor_price }}</td></tr>{% endfor %}</table>
+<p><b>Total (ex-tax): Rs {{ q.total }}</b></p>
+<h2>Delivery plan ({{ q.plan_choice }})</h2>
+<table><tr><th>From</th><th>Ships</th><th>Delivered</th><th>Units</th><th>Freight</th><th>What it relies on</th></tr>
+{% for s in q.plan.shipments %}<tr><td>{{ s.warehouse }}</td><td>{{ s.ship_date }}</td><td>{{ s.delivery }}</td><td>{{ s.units }}</td><td>Rs {{ s.freight }}</td>
+<td>{% for a in s.allocs %}{{ a.qty }} x {{ a.product }} ({{ a.kind }} {{ a.location }}{% if a.day %} {{ a.line }} {{ a.day }}{% endif %})<br>{% endfor %}</td></tr>{% endfor %}</table>
+{% if q.plan.shipments|length > 1 and q.single_shipment_comparison %}<div class="note">This plan ships in {{ q.plan.shipments|length }} parts. One shipment would deliver on
+{{ q.single_shipment_comparison.delivery }} for freight Rs {{ q.single_shipment_comparison.freight }}. <b>Extra freight: Rs {{ q.single_shipment_comparison.extra }}.</b></div>{% endif %}
+<h2>Approvals</h2><table><tr><th>Role</th><th>Status</th><th>By</th><th>Reason</th></tr>
+{% for a in q.approvals %}<tr><td>{{ a.role }}</td><td>{{ a.status }}</td><td>{{ a.by or '' }}</td><td>{{ a.reason or '' }}</td></tr>{% endfor %}</table>
+{% if q.status == 'pending_approval' %}
+<h2>Decide</h2>
+<form class="inline" method="post" action="/ui/approvals/{{ q.quotation }}/{{ q.version }}/approve"><input name="reason" placeholder="reason (optional)"><button>Approve</button></form>
+<form class="inline" method="post" action="/ui/approvals/{{ q.quotation }}/{{ q.version }}/reject"><input name="reason" placeholder="reason (required)" required><button>Reject</button></form><br>
+<form class="inline" method="post" action="/ui/approvals/{{ q.quotation }}/{{ q.version }}/change">
+ Change: extra discount % <input name="pct" size="4"> or plan <select name="chosen"><option value="">keep</option>{% for c in q.choices %}<option>{{ c }}</option>{% endfor %}</select>
+ <button>Create new version</button></form>
+<p class="info">A change creates a new version that someone else must approve. You cannot type a delivery date: only a verified plan can supply one.</p>
+{% endif %}
+<h2>Basis (every record this promise relied on)</h2>
+<table><tr><th>Record</th><th>Read at</th><th>Values</th></tr>{% for b in q.basis %}<tr><td>{{ b.source }}: {{ b.record }}</td><td>{{ b.read_at }}</td><td>{{ b['values'] }}</td></tr>{% endfor %}</table>
+{% endblock %}

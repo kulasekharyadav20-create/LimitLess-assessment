@@ -1,0 +1,8 @@
+{% extends "base.html" %}{% block body %}
+<h1>Approval queue</h1>
+<table><tr><th>Quotation</th><th>Customer</th><th>Total (ex-tax)</th><th>You approve as</th><th>Created by</th><th>Why it needs a person</th></tr>
+{% for r in queue %}<tr><td><a href="/ui/approvals/{{ r.quotation }}/{{ r.version }}">{{ r.quotation }} v{{ r.version }}</a></td><td>{{ r.customer }}</td>
+<td>Rs {{ r.total }}</td><td>{{ r.role }}</td><td>{{ r.created_by }}</td><td>{{ r.flags|join(', ') or 'routine' }}</td></tr>
+{% else %}<tr><td colspan="6">Nothing is waiting for you.</td></tr>{% endfor %}</table>
+<h2>Your alerts</h2><ul>{% for a in alerts %}<li>{{ a.created_at }}: {{ a.text }}</li>{% else %}<li>None.</li>{% endfor %}</ul>
+{% endblock %}

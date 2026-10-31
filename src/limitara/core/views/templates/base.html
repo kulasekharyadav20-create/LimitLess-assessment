@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Limitara{% endblock %}</title>
+<style>
+ body{font:15px/1.5 system-ui,sans-serif;margin:0;color:#1b1b1b;background:#fafaf8}
+ header{background:#1f2937;color:#fff;padding:10px 24px;display:flex;gap:16px;align-items:center}
+ header a{color:#cbd5e1;text-decoration:none} header .who{margin-left:auto}
+ main{max-width:1000px;margin:0 auto;padding:24px}
+ table{border-collapse:collapse;width:100%;margin:8px 0 20px;background:#fff}
+ th,td{border:1px solid #e5e7eb;padding:6px 10px;text-align:left;vertical-align:top} th{background:#f3f4f6}
+ .msg{background:#fef3c7;border:1px solid #f59e0b;padding:8px 12px;margin-bottom:16px}
+ .block{color:#b91c1c;font-weight:600}.needs_role{color:#b45309;font-weight:600}.info{color:#475569}
+ .note{background:#e0f2fe;border:1px solid #38bdf8;padding:8px 12px;margin:8px 0}
+ form.inline{display:inline-block;margin:4px 8px 4px 0} input,select,button{font:inherit;padding:4px 8px}
+ button{cursor:pointer} h1{font-size:22px} h2{font-size:18px;margin-top:28px} code{background:#f3f4f6;padding:1px 4px}
+</style></head><body>
+<header><strong>Limitara</strong>
+{% if user %}<a href="/ui/{{ 'customer' if user.role=='customer' else ('rep' if user.role=='rep' else 'approvals') }}">Home</a>
+{% if user.is_staff and user.role!='rep' %}<a href="/ui/rep">Cases and orders</a>{% endif %}
+<span class="who">{{ user.name }} ({{ user.role }}) &middot; <a href="/logout">sign out</a></span>{% endif %}</header>
+<main>{% if msg %}<div class="msg">{{ msg }}</div>{% endif %}{% block body %}{% endblock %}</main></body></html>

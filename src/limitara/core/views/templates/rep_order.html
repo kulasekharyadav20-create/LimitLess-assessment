@@ -1,0 +1,21 @@
+{% extends "base.html" %}{% block body %}
+<h1>{{ o.order }} <small>({{ o.stage }}{% if o.at_risk %}, promise at risk{% endif %})</small></h1>
+<p>Case {{ o.case }}, customer {{ o.customer }}.</p>
+{% for s in o.slips %}{% if s.status in ('open','decided_hold','decided_notified') %}
+<div class="note"><b>Slip:</b> {{ s.work_order }} promised {{ s.promised }}, now {{ s.forecast }} ({{ s.status }}).
+<ol>{% for opt in s.options %}<li>{{ opt.label }}{% if opt.delivery %} &mdash; delivers {{ opt.delivery }}, freight Rs {{ opt.freight }}{% endif %}</li>{% endfor %}</ol>
+<form method="post" action="/ui/slips/{{ s.id }}/decide"><input type="hidden" name="order" value="{{ o.order }}">
+ <select name="decision"><option value="hold">Do not tell the customer yet</option><option value="notify">Tell the customer</option></select>
+ option # <input name="option" size="2" placeholder="(optional)"> <input name="note" placeholder="short note"> <button>Record decision</button></form>
+<p class="info">Nothing is sent without this decision. A notice that states a new date also needs a sales manager.</p></div>{% endif %}{% endfor %}
+<h2>Quotation versions</h2>
+{% for v in o.versions %}<h3>v{{ v.version }}: {{ v.status }} (valid until {{ v.valid_until }}, total Rs {{ v.total }})</h3>
+<table><tr><th>Product</th><th>Qty</th><th>List</th><th>Terms %</th><th>Unit price</th><th>Delivery by</th></tr>
+{% for l in v.lines %}<tr><td>{{ l.product }}</td><td>{{ l.qty }}</td><td>{{ l.list_price }}</td><td>{{ l.discount_pct }}</td><td>{{ l.unit_price }}</td><td>{{ l.delivery_by }}</td></tr>{% endfor %}</table>
+{% for f in v.flags %}<div><span class="{{ f.severity }}">[{{ f.code }}]</span> {{ f.detail }}</div>{% endfor %}
+{% for a in v.approvals %}<div>Approval {{ a.role }}: {{ a.status }} {{ a.by or '' }} {{ a.reason or '' }}</div>{% endfor %}{% endfor %}
+<h2>Production</h2><table><tr><th>Work order</th><th>Product</th><th>Qty</th><th>State</th><th>Promised</th><th>Forecast</th><th>Note</th></tr>
+{% for w in o.work_orders %}<tr><td>{{ w.id }}</td><td>{{ w.product_id }}</td><td>{{ w.qty }}</td><td>{{ w.state }}</td><td>{{ w.promised_date }}</td><td>{{ w.forecast_finish }}</td><td>{{ w.note or '' }}</td></tr>{% endfor %}</table>
+<h2>Shipments</h2><table><tr><th>Id</th><th>Kind</th><th>From</th><th>To</th><th>Ships</th><th>Delivered</th><th>Status</th><th>Freight</th></tr>
+{% for s in o.shipments %}<tr><td>{{ s.id }}</td><td>{{ s.kind }}</td><td>{{ s.from_location }}</td><td>{{ s.destination }}</td><td>{{ s.ship_date }}</td><td>{{ s.delivery_date }}</td><td>{{ s.status }}</td><td>{{ s.freight_charge }}</td></tr>{% endfor %}</table>
+{% endblock %}

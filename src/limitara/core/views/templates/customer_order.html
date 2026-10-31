@@ -1,0 +1,12 @@
+{% extends "base.html" %}{% block body %}
+<h1>Order {{ o.order }}</h1><p><b>{{ o.stage }}</b></p>
+{% if o.delivery_note %}<div class="note">{{ o.delivery_note }}</div>{% endif %}
+<h2>Shipments</h2><table><tr><th>Shipment</th><th>Carrier</th><th>Units</th><th>Ships</th><th>Delivery</th><th>Status</th><th>Freight (as quoted)</th></tr>
+{% for s in o.shipments %}<tr><td>{{ s.id }}</td><td>{{ s.carrier }}</td><td>{{ s.units }}</td><td>{{ s.ship_date or 'to be confirmed' }}</td><td>{{ s.delivery_date or 'to be confirmed' }}</td><td>{{ s.status }}</td><td>Rs {{ s.freight }}</td></tr>{% endfor %}</table>
+<h2>Quotations sent to you</h2>
+{% for q in o.quotations %}<h3>{{ q.quotation }} v{{ q.version }}: {{ q.status }}{% if q.accepted %} (the version you accepted){% endif %}</h3>
+<p>Valid until {{ q.valid_until }}. Total (ex-tax) Rs {{ q.total }}.</p>
+<table><tr><th>Product</th><th>Qty</th><th>Unit price</th><th>Delivery by</th></tr>
+{% for l in q.lines %}<tr><td>{{ l.product }}</td><td>{{ l.qty }}</td><td>Rs {{ l.unit_price }}</td><td>{{ l.delivery_by or 'to be confirmed' }}</td></tr>{% endfor %}</table>{% endfor %}
+<h2>Timeline</h2><ul>{% for e in o.timeline %}<li>{{ e.at }}: {{ e.what }}</li>{% endfor %}</ul>
+{% endblock %}
