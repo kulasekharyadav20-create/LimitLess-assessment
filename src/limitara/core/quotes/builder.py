@@ -111,7 +111,7 @@ def build_version(ctx: Ctx, qr: QuoteRequest) -> Built:
 
     promise = build_promise(snap, Request(qr.lines, qr.city, qr.deliver_by, partial), ctx.config)
     if promise.status == NOTHING:
-        raise CannotQuote("NO_PLAN", "No plan covers this request within the planning horizon. " + "; ".join(promise.notes))
+        raise CannotQuote("NO_PLAN", "No plan covers this request within the planning horizon.")
     plans = offerable_plans(promise)
     chosen = qr.chosen
     if chosen == "default":
@@ -144,7 +144,7 @@ def build_version(ctx: Ctx, qr: QuoteRequest) -> Built:
     if disputes and not any(a["kind"] == "dispute_closed" for a in activities):
         flags.append(Flag("OPEN_DISPUTE", disputes[-1]["summary"]))
     if qr.customer_requests:
-        flags.append(Flag("CUSTOMER_REQUESTS", "The customer's email asked for: " + "; ".join(qr.customer_requests)
+        flags.append(Flag("CUSTOMER_REQUESTS", "The customer's email asked for: " + "; ".join(r.rstrip(".") for r in qr.customer_requests)
                           + ". These were recorded and not acted on."))
 
     best = promise.best_single
