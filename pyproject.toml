@@ -18,6 +18,7 @@ dev = ["pytest>=8"]
 [project.scripts]
 start = "limitara.launcher:main"
 seed = "limitara.seed:main"
+sample-run = "limitara.sample_run:main"
 
 [build-system]
 requires = ["hatchling"]
