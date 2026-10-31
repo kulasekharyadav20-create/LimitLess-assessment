@@ -230,7 +230,7 @@ def change(ctx: Ctx, qid: str, version: int, user: User, *, rep_discount_pct: De
 
 
 # ---- hold and send ------------------------------------------------------------------------
-def _hold_requests(plan, snapshot):
+def hold_requests(plan, bom):
     items: dict[tuple, int] = {}
     days: list[dict] = []
     for sh in plan.shipments:
@@ -240,7 +240,7 @@ def _hold_requests(plan, snapshot):
             elif a.kind == "plant_stock":
                 items[(a.location, a.product)] = items.get((a.location, a.product), 0) + a.qty
             else:
-                material, per = snapshot.bom[a.product]
+                material, per = bom[a.product]
                 items[(a.location, material)] = items.get((a.location, material), 0) + a.qty * per
                 days.append({"line_id": a.line, "day": a.day.isoformat(), "product_id": a.product, "units": a.qty})
     return ([{"location_id": k[0], "item_id": k[1], "qty": q} for k, q in sorted(items.items())], days)
@@ -278,7 +278,7 @@ def finalize_send(ctx: Ctx, qid: str, version: int) -> str:
     problems = verify_plan(stored["plan"], snap, qr.lines, qr.city, ctx.config)
     if problems:
         return _replan(ctx, qid, version, qr.case_id, "the plan no longer holds: " + "; ".join(problems[:3]))
-    items, days = _hold_requests(stored["plan"], snap)
+    items, days = hold_requests(stored["plan"], snap.bom)
     ref = f"{qid}:v{version}"
     try:
         if items:
