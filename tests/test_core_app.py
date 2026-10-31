@@ -198,3 +198,24 @@ def test_every_page_renders_for_the_right_person(ctx, web, placed):
                        ("CT-101", "/ui/customer"), ("CT-101", "/ui/customer/orders/SO-1001")):
         assert web.get(path, headers=as_(user)).status_code == 200, path
     assert web.get("/ui/approvals", headers=as_("CT-101")).status_code == 403
+
+
+def test_demo_tools_drive_the_whole_flow_from_forms(ctx, web):
+    skip_seeded(ctx)
+    assert web.get("/ui/demo", headers=as_("CT-101")).status_code == 403
+    page = web.get("/ui/demo", headers=as_("REP-01"))
+    assert page.status_code == 200 and "Send email" in page.text
+    r = web.post("/ui/demo/send", headers=as_("REP-01"), data={"sender": RAKESH, "body": HEADLINE, "thread": ""}, follow_redirects=False)
+    assert r.status_code == 303
+    [q] = [x for x in ctx.clients.erp.get("/quotations").data if x["id"].startswith("Q-2")]
+    assert q["versions"][0]["status"] == "pending_approval"
+    web.post(f"/ui/approvals/{q['id']}/1/approve", headers=as_("MGR-01"), data={"reason": "ok"})
+    assert "Customer accepts" in web.get("/ui/demo", headers=as_("REP-01")).text
+    oid = ctx.store.db.one("SELECT id FROM outbound_messages WHERE kind='quote' AND state='sent'")["id"]
+    web.post("/ui/demo/reply", headers=as_("REP-01"), data={"outbound": oid, "what": "accept"})
+    [order] = ctx.clients.erp.get("/sales-orders").data
+    wo = ctx.clients.production.get("/work-orders", order_ref=order["id"]).data[0]["id"]
+    web.post("/ui/demo/slip", headers=as_("REP-01"), data={"work_order": wo, "days": "3"})
+    assert slips.slip_open(ctx, order["id"])
+    web.post("/ui/demo/recover", headers=as_("REP-01"), data={"work_order": wo})
+    assert not slips.slip_open(ctx, order["id"])
