@@ -14,7 +14,7 @@ def port_of(name: str) -> int:
 
 
 def core_port() -> int:
-    return int(os.environ.get("LIMITARA_CORE_PORT", "3000"))
+    return int(os.environ.get("LIMITARA_CORE_PORT", "8400"))
 
 
 def url_of(name: str) -> str:
