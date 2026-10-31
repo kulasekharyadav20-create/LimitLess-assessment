@@ -1,6 +1,6 @@
 """Dispatch stand-in: warehouses, lanes, carrier schedules, holidays, shipments and freight."""
 
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 from fastapi import FastAPI, Header
@@ -104,7 +104,7 @@ def create_app(path: str | None = None, clock: Clock | None = None) -> FastAPI:
                 if lane is None:
                     raise ApiError(422, "no_lane", f"{body.from_location} to {body.destination}")
                 charge = Decimal(lane["per_unit_charge"]) * units
-                deliver, carrier = delivery_date(ship, lane["transit_days"], hol), "internal"
+                deliver, carrier = ship + timedelta(days=lane["transit_days"]), "internal"  # internal trucks run every day
             n = conn.execute("SELECT COUNT(*) FROM shipments").fetchone()[0]
             sid = f"SHP-{2312 + n}"
             conn.execute(
