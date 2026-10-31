@@ -33,7 +33,9 @@ CREATE TABLE deliveries(
     to_addr TEXT NOT NULL,
     sent_at TEXT NOT NULL,
     received_at TEXT NOT NULL,
-    body TEXT NOT NULL
+    body TEXT NOT NULL,
+    direction TEXT NOT NULL DEFAULT 'in' CHECK (direction IN ('in', 'out')),
+    subject TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE attachments(
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -63,8 +65,9 @@ class _Writer:
     def message(self, tid, mid, frm, to, sent, received, body, reply_to=None, attachments=()):
         cur = self.conn.execute(
             "INSERT INTO deliveries(message_id, thread_id, in_reply_to, from_addr, to_addr,"
-            " sent_at, received_at, body) VALUES (?,?,?,?,?,?,?,?)",
-            (mid, tid, reply_to, frm, to, sent, received, body),
+            " sent_at, received_at, body, direction) VALUES (?,?,?,?,?,?,?,?,?)",
+            (mid, tid, reply_to, frm, to, sent, received, body,
+             "out" if frm.endswith("@limitara.example") else "in"),
         )
         for filename, ctype, content in attachments:
             self.conn.execute(
