@@ -1,7 +1,10 @@
 {% extends "base.html" %}{% block body %}
 <h1>Your cases</h1>
 <h2>Waiting for you</h2>
-<table><tr><th>Task</th><th>What</th></tr>{% for t in tasks %}<tr><td>{{ t.kind }}</td><td>{{ t.text }}</td></tr>{% else %}<tr><td colspan="2">Nothing waiting.</td></tr>{% endfor %}</table>
+<table><tr><th>Task</th><th>What</th></tr>{% for t in tasks %}<tr><td>{{ t.kind }}</td><td>{{ t.text }}
+{% if t.kind == 'possible_duplicate' and '"held": true' in (t.refs_json or '') %}<br>
+<form class="inline" method="post" action="/ui/rep/tasks/{{ t.id }}/duplicate/discard"><button>Duplicate: discard</button></form>
+<form class="inline" method="post" action="/ui/rep/tasks/{{ t.id }}/duplicate/proceed"><button>New request: proceed</button></form>{% endif %}</td></tr>{% else %}<tr><td colspan="2">Nothing waiting.</td></tr>{% endfor %}</table>
 <h2>Alerts</h2><ul>{% for a in alerts %}<li>{{ a.created_at }} &mdash; {{ a.text }}</li>{% else %}<li>None.</li>{% endfor %}</ul>
 <h2>Cases and quotations</h2>
 <table><tr><th>Case</th><th>Customer</th><th>Status</th><th>Quotation versions</th></tr>

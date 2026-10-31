@@ -21,7 +21,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from limitara.clock import Clock, clock_from_env
-from limitara.contracts import Unknown
+from limitara.contracts import Unavailable, Unknown
 from limitara.core.approvals.router import route_approvals
 from limitara.core.clients import Clients
 from limitara.core.config import DEFAULT
@@ -240,6 +240,34 @@ def create_app(path: str | None = None, clock: Clock | None = None, clients: Cli
         with ctx.store.db.tx() as conn:
             conn.execute("UPDATE tasks SET state='done', resolved_by=?, resolved_at=? WHERE id=?", (user.id, ctx.store.now(), task_id))
         return {"ok": True}
+
+    def _duplicate_task(user: User, task_id: int) -> None:
+        row = ctx.store.db.one("SELECT t.case_id FROM tasks t WHERE t.id=? AND t.kind='possible_duplicate'", (task_id,))
+        if row is None:
+            raise HTTPException(404, "no such task")
+        if user.role == "rep" and row["case_id"]:
+            case = ctx.store.db.one("SELECT rep_id FROM cases WHERE id=?", (row["case_id"],))
+            if case and case["rep_id"] != user.id:
+                raise HTTPException(404, "no such task")
+
+    @app.post("/api/tasks/{task_id}/duplicate/{decision}")
+    def api_duplicate(task_id: int, decision: str, user: User = Depends(staff)):
+        _duplicate_task(user, task_id)
+        try:
+            return {"result": intake.resolve_duplicate(ctx, task_id, decision, user.id)}
+        except (LookupError, ValueError) as exc:
+            raise HTTPException(409, str(exc))
+        except Unavailable as exc:
+            raise HTTPException(503, str(exc))
+
+    @app.post("/ui/rep/tasks/{task_id}/duplicate/{decision}")
+    def ui_duplicate(task_id: int, decision: str, user: User = Depends(staff)):
+        _duplicate_task(user, task_id)
+        try:
+            result = intake.resolve_duplicate(ctx, task_id, decision, user.id)
+        except (LookupError, ValueError, Unavailable) as exc:
+            return back("/ui/rep", str(exc))
+        return back("/ui/rep", f"duplicate {decision}: {result}")
 
     @app.get("/api/rep/alerts")
     def api_alerts(user: User = Depends(staff)):
