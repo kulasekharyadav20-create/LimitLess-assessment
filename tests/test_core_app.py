@@ -219,3 +219,18 @@ def test_demo_tools_drive_the_whole_flow_from_forms(ctx, web):
     assert slips.slip_open(ctx, order["id"])
     web.post("/ui/demo/recover", headers=as_("REP-01"), data={"work_order": wo})
     assert not slips.slip_open(ctx, order["id"])
+
+
+def test_held_duplicate_has_buttons_and_the_rep_can_proceed_or_discard(ctx, web):
+    skip_seeded(ctx)
+    send(ctx, HEADLINE, mid="<a@x>")
+    send(ctx, HEADLINE, mid="<b@x>", thread="T-NEW-2")
+    web.post("/admin/poll", headers=as_("REP-01"))
+    html = web.get("/ui/rep", headers=as_("REP-01")).text
+    assert "Duplicate: discard" in html and "New request: proceed" in html
+    [t] = [x for x in web.get("/api/rep/tasks", headers=as_("REP-01")).json() if x["kind"] == "possible_duplicate"]
+    assert web.post(f"/api/tasks/{t['id']}/duplicate/proceed", headers=as_("CT-101")).status_code == 403
+    assert web.post(f"/api/tasks/{t['id']}/duplicate/maybe", headers=as_("REP-01")).status_code == 409
+    assert web.post(f"/api/tasks/{t['id']}/duplicate/proceed", headers=as_("REP-01")).status_code == 200
+    assert web.post(f"/api/tasks/{t['id']}/duplicate/proceed", headers=as_("REP-01")).status_code == 409
+    assert len([x for x in ctx.clients.erp.get("/quotations").data if x["id"].startswith("Q-2")]) == 2

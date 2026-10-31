@@ -114,12 +114,55 @@ def test_the_same_message_delivered_twice_makes_one_case_and_one_quote(ctx):
     assert ctx.store.db.one("SELECT COUNT(*) AS c FROM cases")["c"] == 1
 
 
-def test_a_near_identical_resend_with_a_new_id_attaches_to_the_open_case(ctx):
+def test_a_near_identical_resend_with_a_new_id_is_held_not_quoted(ctx):
     skip_seeded(ctx)
     send(ctx, HEADLINE, mid="<a@x>")
     send(ctx, HEADLINE, mid="<b@x>", thread="T-NEW-2")
     intake.poll(ctx)
+    [t] = tasks(ctx, "possible_duplicate")
+    assert len(quotations(ctx)) == 1 and '"held": true' in t["refs_json"]
+    assert ctx.store.db.one("SELECT status FROM inbound_messages WHERE message_id='<b@x>'")["status"] == "held_duplicate"
+
+
+def test_a_resend_with_slightly_different_quantities_is_also_held(ctx):
+    skip_seeded(ctx)
+    send(ctx, HEADLINE, mid="<a@x>")
+    send(ctx, HEADLINE.replace("300 of", "330 of"), mid="<b@x>", thread="T-NEW-2")
+    intake.poll(ctx)
     assert len(quotations(ctx)) == 1 and tasks(ctx, "possible_duplicate")
+
+
+def test_a_resend_with_very_different_quantities_is_a_new_enquiry(ctx):
+    skip_seeded(ctx)
+    send(ctx, HEADLINE, mid="<a@x>")
+    send(ctx, HEADLINE.replace("300 of", "600 of"), mid="<b@x>", thread="T-NEW-2")
+    intake.poll(ctx)
+    assert len(quotations(ctx)) == 2 and not tasks(ctx, "possible_duplicate")
+
+
+def test_discarding_a_held_duplicate_closes_the_task_and_makes_no_quote(ctx):
+    skip_seeded(ctx)
+    send(ctx, HEADLINE, mid="<a@x>")
+    send(ctx, HEADLINE, mid="<b@x>", thread="T-NEW-2")
+    intake.poll(ctx)
+    [t] = tasks(ctx, "possible_duplicate")
+    intake.resolve_duplicate(ctx, t["id"], "discard", "REP-01")
+    assert len(quotations(ctx)) == 1 and tasks(ctx, "possible_duplicate")[0]["state"] == "done"
+    with pytest.raises(LookupError):
+        intake.resolve_duplicate(ctx, t["id"], "discard", "REP-01")
+
+
+def test_proceeding_with_a_held_duplicate_quotes_it_once(ctx):
+    skip_seeded(ctx)
+    send(ctx, HEADLINE, mid="<a@x>")
+    send(ctx, HEADLINE, mid="<b@x>", thread="T-NEW-2")
+    intake.poll(ctx)
+    [t] = tasks(ctx, "possible_duplicate")
+    intake.resolve_duplicate(ctx, t["id"], "proceed", "REP-01")
+    assert len(quotations(ctx)) == 2
+    with pytest.raises(LookupError):
+        intake.resolve_duplicate(ctx, t["id"], "proceed", "REP-01")
+    assert len(quotations(ctx)) == 2
 
 
 def test_mail_from_an_unknown_sender_does_nothing_but_tell_a_person(ctx):
@@ -165,13 +208,34 @@ def test_an_acceptance_from_someone_not_authorised_makes_no_order(ctx):
     assert any("not authorised" in t["text"] for t in tasks(ctx, "acceptance_needs_person"))
 
 
-def test_a_reply_that_is_not_the_latest_word_is_not_acted_on(ctx):
+def test_an_older_acceptance_that_a_later_message_overtook_is_ignored_without_a_person(ctx):
     qid = accepted_flow(ctx)
     send(ctx, f"Confirmed, go ahead. Re: Quotation {qid} v1", mid="<ok@x>", thread="T-NEW-1", sent_at="2026-10-31T05:31:00+00:00")
     send(ctx, "Actually please hold, we will revert.", mid="<later@x>", thread="T-NEW-1", sent_at="2026-10-31T05:40:00+00:00")
     intake.poll(ctx)
     assert ctx.clients.erp.get("/sales-orders").data == []
-    assert any("later" in t["text"] for t in tasks(ctx, "acceptance_needs_person"))
+    assert not tasks(ctx, "acceptance_needs_person")
+    assert ctx.store.db.one("SELECT status FROM inbound_messages WHERE message_id='<ok@x>'")["status"] == "superseded_by_later_message"
+
+
+def test_a_delayed_acceptance_goes_to_a_person_because_latest_cannot_be_proven(ctx):
+    qid = accepted_flow(ctx)
+    ctx.clients.mailbox.post("/inbound", json={"message_id": "<ok@x>", "thread_id": "T-NEW-1", "customer_id": "CUST-001", "subject": "Re",
+                                               "from_addr": RAKESH, "body": f"Confirmed, go ahead. Re: Quotation {qid} v1",
+                                               "sent_at": "2026-10-31T05:31:00+00:00", "received_at": "2026-10-31T09:00:00+00:00"})
+    intake.poll(ctx)
+    assert ctx.clients.erp.get("/sales-orders").data == []
+    assert any("cannot tell whether this is the customer's latest word" in t["text"] for t in tasks(ctx, "acceptance_needs_person"))
+
+
+def test_two_messages_with_the_same_send_time_cannot_be_ordered(ctx):
+    qid = accepted_flow(ctx)
+    same = "2026-10-31T05:31:00+00:00"
+    send(ctx, f"Confirmed, go ahead. Re: Quotation {qid} v1", mid="<ok@x>", thread="T-NEW-1", sent_at=same)
+    send(ctx, "Actually please hold.", mid="<other@x>", thread="T-NEW-1", sent_at=same)
+    intake.poll(ctx)
+    assert ctx.clients.erp.get("/sales-orders").data == []
+    assert any("same send time" in t["text"] for t in tasks(ctx, "acceptance_needs_person"))
 
 
 def test_an_acceptance_with_different_quantities_is_a_change_not_an_order(ctx):
