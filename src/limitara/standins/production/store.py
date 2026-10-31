@@ -43,13 +43,29 @@ CREATE TABLE work_orders(
     line_id TEXT NOT NULL REFERENCES lines(id),
     qty INTEGER NOT NULL CHECK (qty > 0),
     completed_qty INTEGER NOT NULL CHECK (completed_qty >= 0),
-    state TEXT NOT NULL CHECK (state IN ('planned', 'in_progress', 'late', 'done')),
+    state TEXT NOT NULL CHECK (state IN ('planned', 'in_progress', 'late', 'done', 'cancelled')),
     promised_date TEXT NOT NULL,
     forecast_finish TEXT NOT NULL,
     customer_id TEXT,
     sales_order_ref TEXT,
     note TEXT,
-    updated_at TEXT NOT NULL
+    updated_at TEXT NOT NULL,
+    booking_id TEXT
+);
+CREATE TABLE bookings(
+    id TEXT PRIMARY KEY,
+    ref_id TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('soft', 'hard')),
+    status TEXT NOT NULL CHECK (status IN ('active', 'released', 'expired')),
+    expires_at TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE booking_days(
+    booking_id TEXT NOT NULL REFERENCES bookings(id),
+    line_id TEXT NOT NULL,
+    day TEXT NOT NULL,
+    product_id TEXT NOT NULL,
+    units INTEGER NOT NULL CHECK (units > 0)
 );
 """
 
@@ -91,7 +107,8 @@ def seed(conn: sqlite3.Connection, today: date, updated_at: str) -> None:
 
     d = lambda n: (today + timedelta(days=n)).isoformat()  # noqa: E731
     conn.executemany(
-        "INSERT INTO work_orders VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO work_orders(id, product_id, plant_id, line_id, qty, completed_qty, state, promised_date,"
+        " forecast_finish, customer_id, sales_order_ref, note, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
         [
             ("WO-1001", "FL-50", "PLT-A", "A1", 300, 120, "late", d(5), d(7), "CUST-004",
              "SO-5530", "Slipped: Line A1 down, gearbox repair", updated_at),
