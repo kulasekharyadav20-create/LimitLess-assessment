@@ -73,3 +73,11 @@ def store(tmp_path, clock):
     from limitara.core.store import CoreStore
 
     return CoreStore(tmp_path / "core.db", clock)
+
+
+@pytest.fixture
+def ctx(clients, store, clock):
+    from limitara.core.config import DEFAULT
+    from limitara.core.context import Ctx
+
+    return Ctx(clients, store, clock, DEFAULT)
