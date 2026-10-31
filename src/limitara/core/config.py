@@ -17,6 +17,9 @@ class Config:
     slip_check_seconds: int = 60
     escalate_hours: int = 4
     near_duplicate_hours: int = 24
+    near_duplicate_qty_pct: int = 25         # quantities within this % of an open enquiry count as "the same request"
+    mail_delay_hours: int = 2                # a reply that arrived later than this after it was sent may have newer mail behind it
+    mail_skew_minutes: int = 15              # a send time this far ahead of arrival is not trusted
     read_timeout: float = 2.0
     write_timeout: float = 5.0
     intent_backoff_seconds: tuple[int, ...] = (5, 15, 60, 300)

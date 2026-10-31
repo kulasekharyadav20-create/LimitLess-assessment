@@ -113,6 +113,38 @@ def handle_delivery(ctx: Ctx, d: dict) -> str:
         return "needs_person"
 
 
+def _interpret(ctx: Ctx, d: dict) -> Interpretation:
+    cities = {r["destination_city"] for r in ctx.clients.dispatch.get("/schedules").data}
+    msg = MailMessage(d["subject"], d["body"], parse_instant(d["sent_at"]), d["in_reply_to"],
+                      tuple((a["filename"], a["content"]) for a in d["attachments"]))
+    return interpret(msg, ist_date(ctx.clock.now()), cities, ctx.config.validity_cutoff_ist)
+
+
+def resolve_duplicate(ctx: Ctx, task_id: int, decision: str, actor: str) -> str:
+    """A person has asked the customer. 'discard' drops the held enquiry; 'proceed' treats it as a new request."""
+    with ctx.lock:
+        task = ctx.store.db.one("SELECT * FROM tasks WHERE id=? AND kind='possible_duplicate' AND state='open'", (task_id,))
+        refs = json.loads(task["refs_json"] or "{}") if task else {}
+        if task is None or not refs.get("held"):
+            raise LookupError("no open held duplicate with that id")
+        if decision not in ("discard", "proceed"):
+            raise ValueError("decision must be discard or proceed")
+        result = "discarded"
+        if decision == "proceed":
+            batch = ctx.clients.mailbox.get("/deliveries", after_id=refs["delivery_id"] - 1, limit=1).data
+            d = batch[0]
+            account = ctx.clients.crm.get("/accounts/by-email", email=d["from_addr"]).data
+            result = _enquiry(ctx, d, account, _interpret(ctx, d), check_duplicate=False)
+            _mark(ctx, refs["message_id"], "processed")
+        else:
+            _mark(ctx, refs["message_id"], "discarded_duplicate")
+        with ctx.store.db.tx() as conn:
+            conn.execute("UPDATE tasks SET state='done', resolved_by=?, resolved_at=? WHERE id=?", (actor, ctx.store.now(), task_id))
+        ctx.store.event(task["case_id"], f"duplicate_{decision}", refs["message_id"], by=actor)
+        ctx.store.audit("user", actor, f"duplicate_{decision}", "message", refs["message_id"], result=result)
+        return result
+
+
 def _process(ctx: Ctx, d: dict) -> str:
     try:
         account = ctx.clients.crm.get("/accounts/by-email", email=d["from_addr"]).data
@@ -122,11 +154,7 @@ def _process(ctx: Ctx, d: dict) -> str:
         _mark(ctx, d["message_id"], "needs_person")
         ctx.store.task(None, "rep", "unknown_sender", f"Mail from {d['from_addr']}, who is not a known contact: \"{_excerpt(d['body'])}\". Nothing was done.")
         return "unknown_sender"
-    cities = {r["destination_city"] for r in ctx.clients.dispatch.get("/schedules").data}
-    msg = MailMessage(d["subject"], d["body"], parse_instant(d["sent_at"]), d["in_reply_to"],
-                      tuple((a["filename"], a["content"]) for a in d["attachments"]))
-    today = ist_date(ctx.clock.now())
-    interp = interpret(msg, today, cities, ctx.config.validity_cutoff_ist)
+    interp = _interpret(ctx, d)
     _mark(ctx, d["message_id"], "processed", customer_id=account["id"], intent=interp.intent, interpretation_json=_interp_json(interp), thread_id=d["thread_id"])
     ctx.store.audit("system", None, "message_read", "message", d["message_id"], intent=interp.intent, customer=account["id"])
     handler = {"enquiry": _enquiry, "acceptance": _acceptance, "decline": _decline}.get(interp.intent, _for_a_person)
@@ -141,17 +169,26 @@ def _for_a_person(ctx: Ctx, d: dict, account: dict, interp: Interpretation) -> s
     return f"task:{kind}"
 
 
+def _similar(ctx: Ctx, a: tuple, b: tuple) -> bool:
+    """Same products, and every quantity within the configured percentage of the other."""
+    da, db = dict(a), dict(b)
+    if set(da) != set(db):
+        return False
+    pct = ctx.config.near_duplicate_qty_pct
+    return all(abs(da[p] - db[p]) * 100 <= pct * max(da[p], db[p]) for p in da)
+
+
 def _find_near_duplicate(ctx: Ctx, account: dict, lines: tuple, city: str) -> str | None:
     cutoff = ctx.clock.now() - timedelta(hours=ctx.config.near_duplicate_hours)
     for row in ctx.store.db.query("SELECT c.id, c.created_at, p.request_json FROM cases c JOIN plan_bases p ON p.quotation_id=c.quotation_id "
                                   "WHERE c.customer_id=? AND c.status!='closed' ORDER BY p.version DESC", (account["id"],)):
         req = QuoteRequest.from_json(row["request_json"])
-        if parse_instant(row["created_at"]) >= cutoff and tuple(sorted(req.lines)) == tuple(sorted(lines)) and req.city == city:
+        if parse_instant(row["created_at"]) >= cutoff and req.city == city and _similar(ctx, tuple(req.lines), lines):
             return row["id"]
     return None
 
 
-def _enquiry(ctx: Ctx, d: dict, account: dict, interp: Interpretation) -> str:
+def _enquiry(ctx: Ctx, d: dict, account: dict, interp: Interpretation, check_duplicate: bool = True) -> str:
     case = _case_for_thread(ctx, d, account, create=False)
     problems = list(interp.conflicts) + list(interp.unknowns)
     if interp.deliver_by is None and not problems:
@@ -166,10 +203,14 @@ def _enquiry(ctx: Ctx, d: dict, account: dict, interp: Interpretation) -> str:
         ctx.store.event(case, "enquiry_needs_person", d["message_id"], problems=problems)
         return "task:cannot_read"
     city = interp.destination or account["city"]
-    duplicate = _find_near_duplicate(ctx, account, lines, city)
+    duplicate = _find_near_duplicate(ctx, account, lines, city) if check_duplicate else None
     if duplicate:
-        ctx.store.task(duplicate, "rep", "possible_duplicate", f"POSSIBLE_DUPLICATE: {d['from_addr']} sent what looks like the same request again. No second quote was made.")
-        ctx.store.event(duplicate, "possible_duplicate", d["message_id"])
+        _mark(ctx, d["message_id"], "held_duplicate")
+        ctx.store.task(duplicate, "rep", "possible_duplicate",
+                       f"POSSIBLE_DUPLICATE: {d['from_addr']} sent what looks like the same request again (\"{_excerpt(d['body'], 100)}\"). "
+                       "Nothing was quoted; the message is held. Ask the customer if this is a new request, then choose Discard or Proceed.",
+                       message_id=d["message_id"], delivery_id=d["delivery_id"], held=True)
+        ctx.store.event(duplicate, "possible_duplicate_held", d["message_id"])
         return "possible_duplicate"
     case = open_case(ctx, account["id"], d["thread_id"], account["owner_rep_id"], d["from_addr"], d["message_id"], city, interp.deliver_by.isoformat())
     qr = QuoteRequest(case, account["id"], d["from_addr"], city, interp.deliver_by, lines, interp.validity_until or _default_validity(ctx),
@@ -213,6 +254,29 @@ def _quote_reference(ctx: Ctx, d: dict, interp: Interpretation) -> tuple[str, in
     return None
 
 
+def _is_latest(ctx: Ctx, d: dict, thread: dict) -> str | None:
+    """None: provably the customer's latest message. 'not_latest': a later-sent message is in the thread.
+    Any other string: the order cannot be established, with the reason (a person must ask the customer)."""
+    cfg = ctx.config
+    try:
+        mine, arrived = parse_instant(d["sent_at"]), parse_instant(d["received_at"])
+        others = [(x, parse_instant(x["sent_at"])) for x in thread["deliveries"]
+                  if x["direction"] == "in" and x["message_id"] != d["message_id"]]
+    except (ValueError, TypeError, KeyError):
+        return "a send time is missing or unreadable"
+    if any(t > mine for _, t in others):
+        return "not_latest"
+    reads = {r["message_id"]: r["intent"] for r in ctx.store.db.query("SELECT message_id, intent FROM inbound_messages WHERE thread_id=?", (d["thread_id"],))}
+    if any(t == mine and reads.get(x["message_id"]) != "enquiry" for x, t in others):  # the enquiry being answered always comes first
+        return "another message in the thread has exactly the same send time"
+    if mine > arrived + timedelta(minutes=cfg.mail_skew_minutes):
+        return "its send time is later than its arrival, so the sender's clock is unreliable"
+    if arrived - mine > timedelta(hours=cfg.mail_delay_hours):
+        hours = (arrived - mine).total_seconds() / 3600
+        return f"it arrived {hours:.0f} hours after it was sent, so a newer message may still be on its way"
+    return None
+
+
 def _acceptance(ctx: Ctx, d: dict, account: dict, interp: Interpretation) -> str:
     def refer(reason: str, case: str | None = None) -> str:
         case = case or _case_for_thread(ctx, d, account)
@@ -244,10 +308,13 @@ def _acceptance(ctx: Ctx, d: dict, account: dict, interp: Interpretation) -> str
         extra = f" The current version is v{live}; ask the customer to confirm that one." if live else ""
         return refer(f"{qid} v{version} is {ver['status']}, not open for acceptance.{extra}", case)
     thread = ctx.clients.mailbox.get(f"/threads/{d['thread_id']}").data
-    mine = parse_instant(d["sent_at"])
-    later = [x for x in thread["deliveries"] if x["direction"] == "in" and parse_instant(x["sent_at"]) > mine]
-    if later:
-        return refer("a message the customer sent later is also in the thread, so this one is not the latest word", case)
+    verdict = _is_latest(ctx, d, thread)
+    if verdict == "not_latest":
+        _mark(ctx, d["message_id"], "superseded_by_later_message")
+        ctx.store.event(case or _case_for_thread(ctx, d, account), "acceptance_overtaken", d["message_id"])
+        return "overtaken_by_later_message"
+    if verdict:
+        return refer(f"cannot tell whether this is the customer's latest word: {verdict}. Ask the customer to confirm", case)
     if interp.lines:
         said = sorted((ln.product, ln.qty) for ln in interp.lines)
         quoted = sorted((ln["product_id"], ln["qty"]) for ln in ver["lines"])
