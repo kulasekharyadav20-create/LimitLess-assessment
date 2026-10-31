@@ -44,13 +44,19 @@ CREATE TABLE shipments(
     id TEXT PRIMARY KEY,
     order_ref TEXT NOT NULL,
     customer_id TEXT NOT NULL,
-    warehouse_id TEXT NOT NULL REFERENCES warehouses(id),
-    destination_city TEXT NOT NULL,
-    product_id TEXT NOT NULL,
-    units INTEGER NOT NULL CHECK (units > 0),
+    kind TEXT NOT NULL CHECK (kind IN ('customer', 'transfer')),
+    from_location TEXT NOT NULL,
+    destination TEXT NOT NULL,
+    carrier TEXT,
     ship_date TEXT NOT NULL,
-    status TEXT NOT NULL CHECK (status IN ('planned', 'dispatched', 'delivered')),
+    delivery_date TEXT,
+    status TEXT NOT NULL CHECK (status IN ('planned', 'dispatched', 'delivered', 'cancelled')),
     freight_charge TEXT NOT NULL
+);
+CREATE TABLE shipment_lines(
+    shipment_id TEXT NOT NULL REFERENCES shipments(id),
+    product_id TEXT NOT NULL,
+    units INTEGER NOT NULL CHECK (units > 0)
 );
 """
 
@@ -100,21 +106,22 @@ def seed(conn: sqlite3.Connection, today: date, now_iso: str) -> None:
 
     d = lambda n: (today + timedelta(days=n)).isoformat()  # noqa: E731
     pune = {(s[0]): s for s in SCHEDULES if s[1] == "Pune"}
-    q3_split = [
-        ("SHP-2201", "SO-Q3-0412", "CUST-001", "WH-BHW", "Pune", "FL-50", 180, d(-75)),
-        ("SHP-2202", "SO-Q3-0412", "CUST-001", "WH-CHN", "Pune", "FL-50", 120, d(-74)),
+    shipments = [
+        # id, order, customer, from, destination, carrier, ship, delivery, status, units, product
+        ("SHP-2201", "SO-Q3-0412", "CUST-001", "WH-BHW", "Pune", "SwiftFreight", d(-75), d(-74), "delivered", 180, "FL-50"),
+        ("SHP-2202", "SO-Q3-0412", "CUST-001", "WH-CHN", "Pune", "SouthLine", d(-74), d(-72), "delivered", 120, "FL-50"),
     ]
-    rows = [
-        (sid, order, cust, wh, city, product, units, ship, "delivered",
-         freight(pune[wh][6], pune[wh][7], units))
-        for sid, order, cust, wh, city, product, units, ship in q3_split
+    rows, lines = [], []
+    for sid, order, cust, wh, city, carrier, ship, deliv, status, units, product in shipments:
+        charge = freight(pune[wh][6], pune[wh][7], units)
+        rows.append((sid, order, cust, "customer", wh, city, carrier, ship, deliv, status, charge))
+        lines.append((sid, product, units))
+    extra = [
+        ("SHP-2310", "SO-5498", "CUST-006", "WH-BHW", "Nagpur", "SwiftFreight", d(-1), d(1), "dispatched", 250, "FL-50", "6800.00", "7.50"),
+        ("SHP-2311", "SO-5544", "CUST-005", "WH-GGN", "Delhi", "NorthStar", d(3), d(4), "planned", 180, "FL-50", "3900.00", "5.50"),
     ]
-    rows.append(
-        ("SHP-2310", "SO-5498", "CUST-006", "WH-BHW", "Nagpur", "FL-50", 250, d(-1),
-         "dispatched", freight("6800.00", "7.50", 250))
-    )
-    rows.append(
-        ("SHP-2311", "SO-5544", "CUST-005", "WH-GGN", "Delhi", "FL-50", 180, d(3),
-         "planned", freight("3900.00", "5.50", 180))
-    )
-    conn.executemany("INSERT INTO shipments VALUES (?,?,?,?,?,?,?,?,?,?)", rows)
+    for sid, order, cust, wh, city, carrier, ship, deliv, status, units, product, base, per in extra:
+        rows.append((sid, order, cust, "customer", wh, city, carrier, ship, deliv, status, freight(base, per, units)))
+        lines.append((sid, product, units))
+    conn.executemany("INSERT INTO shipments VALUES (?,?,?,?,?,?,?,?,?,?,?)", rows)
+    conn.executemany("INSERT INTO shipment_lines VALUES (?,?,?)", lines)
