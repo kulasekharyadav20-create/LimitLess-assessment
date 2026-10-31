@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS message_deliveries(
 );
 CREATE TABLE IF NOT EXISTS cases(
     id TEXT PRIMARY KEY, customer_id TEXT NOT NULL, thread_id TEXT, rep_id TEXT, status TEXT NOT NULL,
-    destination_city TEXT, requested_by_date TEXT, quotation_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    destination_city TEXT, requested_by_date TEXT, quotation_id TEXT, contact_email TEXT, last_message_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS case_events(
     id INTEGER PRIMARY KEY AUTOINCREMENT, case_id TEXT NOT NULL, at TEXT NOT NULL, kind TEXT NOT NULL,
