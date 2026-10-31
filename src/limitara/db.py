@@ -7,6 +7,8 @@ BEGIN IMMEDIATE so a check-then-change is one atomic step.
 
 import os
 import sqlite3
+import threading
+from contextlib import contextmanager
 from pathlib import Path
 
 DATA_DIR_ENV = "LIMITARA_DATA_DIR"
@@ -34,3 +36,32 @@ def reset(path: Path | str) -> None:
     """Delete a database and its WAL side files so a seed starts from nothing."""
     for suffix in ("", "-wal", "-shm"):
         Path(f"{path}{suffix}").unlink(missing_ok=True)
+
+
+class Database:
+    """One connection guarded by a lock. tx() is an atomic BEGIN IMMEDIATE block."""
+
+    def __init__(self, path: Path | str):
+        self.path = str(path)
+        self.conn = connect(path)
+        self.lock = threading.RLock()
+
+    @contextmanager
+    def tx(self):
+        with self.lock:
+            self.conn.execute("BEGIN IMMEDIATE")
+            try:
+                yield self.conn
+            except BaseException:
+                self.conn.execute("ROLLBACK")
+                raise
+            else:
+                self.conn.execute("COMMIT")
+
+    def query(self, sql: str, params: tuple = ()) -> list[dict]:
+        with self.lock:
+            return [dict(r) for r in self.conn.execute(sql, params).fetchall()]
+
+    def one(self, sql: str, params: tuple = ()) -> dict | None:
+        rows = self.query(sql, params)
+        return rows[0] if rows else None
