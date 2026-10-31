@@ -16,6 +16,7 @@ Seeded traps (asserted in tests/test_seed_erp.py):
 
 import sqlite3
 from datetime import date, timedelta
+from decimal import Decimal
 
 SCHEMA = """
 CREATE TABLE items(
@@ -58,6 +59,74 @@ CREATE TABLE price_list_items(
     product_id TEXT NOT NULL REFERENCES items(id),
     unit_price TEXT NOT NULL,
     PRIMARY KEY (price_list_id, product_id)
+);
+"""
+
+SCHEMA_DOCS = """
+CREATE TABLE reservations(
+    id TEXT PRIMARY KEY,
+    ref_id TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('soft', 'hard')),
+    status TEXT NOT NULL CHECK (status IN ('active', 'released', 'expired')),
+    expires_at TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE reservation_items(
+    reservation_id TEXT NOT NULL REFERENCES reservations(id),
+    location_id TEXT NOT NULL,
+    item_id TEXT NOT NULL,
+    qty INTEGER NOT NULL CHECK (qty > 0)
+);
+CREATE TABLE quotations(
+    id TEXT PRIMARY KEY,
+    customer_id TEXT NOT NULL,
+    case_ref TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE quotation_versions(
+    quotation_id TEXT NOT NULL REFERENCES quotations(id),
+    version INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    requested_delivery_date TEXT,
+    valid_until TEXT NOT NULL,
+    interpretation_note TEXT,
+    total_ex_tax TEXT NOT NULL,
+    content_hash TEXT NOT NULL,
+    supersedes INTEGER,
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (quotation_id, version)
+);
+CREATE UNIQUE INDEX one_sent_version ON quotation_versions(quotation_id) WHERE status = 'sent';
+CREATE TABLE quotation_lines(
+    quotation_id TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    line_no INTEGER NOT NULL,
+    product_id TEXT NOT NULL,
+    qty INTEGER NOT NULL CHECK (qty > 0),
+    list_price TEXT NOT NULL,
+    discount_pct TEXT NOT NULL,
+    unit_price TEXT NOT NULL,
+    price_list_id TEXT,
+    promised_delivery_date TEXT,
+    PRIMARY KEY (quotation_id, version, line_no)
+);
+CREATE TABLE sales_orders(
+    id TEXT PRIMARY KEY,
+    quotation_id TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    customer_id TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('created', 'confirmed', 'cancelled')),
+    created_at TEXT NOT NULL,
+    UNIQUE (quotation_id, version)
+);
+CREATE TABLE sales_order_lines(
+    order_id TEXT NOT NULL REFERENCES sales_orders(id),
+    line_no INTEGER NOT NULL,
+    product_id TEXT NOT NULL,
+    qty INTEGER NOT NULL,
+    unit_price TEXT NOT NULL,
+    PRIMARY KEY (order_id, line_no)
 );
 """
 
@@ -120,4 +189,29 @@ def seed(conn: sqlite3.Connection, today: date, now_iso: str) -> None:
         conn.executemany(
             "INSERT INTO price_list_items VALUES (?,?,?)",
             [(list_id, product, price) for product, price in prices.items()],
+        )
+
+    conn.executescript(SCHEMA_DOCS)
+    _seed_rajhans_quote(conn, today)
+
+
+def _seed_rajhans_quote(conn: sqlite3.Connection, today: date) -> None:
+    """Q-6001: v1 was superseded by v2. The customer's late 'confirmed' refers to v1."""
+    from limitara.hashing import content_hash
+
+    valid_until = f"{(today + timedelta(days=6)).isoformat()}T12:30:00+00:00"  # Friday 18:00 IST
+    promised = (today + timedelta(days=10)).isoformat()
+    created = f"{(today - timedelta(days=3)).isoformat()}T05:30:00+00:00"
+    conn.execute("INSERT INTO quotations VALUES ('Q-6001', 'CUST-006', 'CASE-SEED-6001', ?)", (created,))
+    for version, price, status in ((1, "1112.50", "superseded"), (2, "1140.00", "sent")):
+        line = {"product_id": "FL-50", "qty": 400, "unit_price": price, "promised_delivery_date": promised}
+        digest = content_hash([line], [], valid_until, "seeded")
+        conn.execute(
+            "INSERT INTO quotation_versions VALUES ('Q-6001', ?, ?, ?, ?, 'seeded', ?, ?, ?, 'REP-01', ?)",
+            (version, status, promised, valid_until, str(Decimal(price) * 400), digest,
+             None if version == 1 else 1, created),
+        )
+        conn.execute(
+            "INSERT INTO quotation_lines VALUES ('Q-6001', ?, 1, 'FL-50', 400, '1250.00', '11.00', ?, 'PL-STD-Q4', ?)",
+            (version, price, promised),
         )
