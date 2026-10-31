@@ -6,3 +6,4 @@ node_modules/
 *.db
 *.sqlite
 .DS_Store
+data/
