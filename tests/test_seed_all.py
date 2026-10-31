@@ -42,4 +42,4 @@ def test_product_ids_agree_across_stand_ins(tmp_path, monkeypatch):
     paths = seed_all(date(2026, 10, 31), NOW)
     known = {r[0] for r in connect(paths["erp"]).execute("SELECT id FROM items WHERE kind='finished'")}
     assert {r[0] for r in connect(paths["production"]).execute("SELECT product_id FROM line_products")} <= known
-    assert {r[0] for r in connect(paths["dispatch"]).execute("SELECT product_id FROM shipments")} <= known
+    assert {r[0] for r in connect(paths["dispatch"]).execute("SELECT product_id FROM shipment_lines")} <= known
