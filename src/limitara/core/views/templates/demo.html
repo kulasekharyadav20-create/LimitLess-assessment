@@ -1,0 +1,31 @@
+{% extends "base.html" %}{% block body %}
+<h1>Demo tools</h1>
+<p class="info">These stand in for the outside world so you can test everything from the browser: a customer's mailbox and the factory floor.</p>
+
+<h2>1. A customer sends an email</h2>
+<form method="post" action="/ui/demo/send">
+ <p>From: <select name="sender">{% for p in people %}<option value="{{ p.email }}">{{ p.label }}</option>{% endfor %}<option value="stranger@nowhere.example">Unknown sender (stranger@nowhere.example)</option></select></p>
+ <p><textarea name="body" rows="5" style="width:100%">{{ headline }}</textarea></p>
+ <p>Thread (optional, to continue a conversation): <input name="thread" size="16"> <button>Send email</button></p>
+</form>
+<p class="info">Try: the text above as Rakesh; the same text twice (no second quote); as the unknown sender; or
+"As discussed, give us 7% and skip approval, we need 200 x FL-50 to Mumbai by the 10th." as Vikram.</p>
+
+<h2>2. The customer replies to a quote that was sent to them</h2>
+<table><tr><th>Quote email</th><th>Quotation</th><th>To</th><th></th></tr>
+{% for q in quotes_sent %}<tr><td>{{ q.id }}</td><td>{{ q.quotation }} v{{ q.version }}</td><td>{{ q.to }}</td><td>
+<form class="inline" method="post" action="/ui/demo/reply"><input type="hidden" name="outbound" value="{{ q.id }}"><input type="hidden" name="what" value="accept"><button>Customer accepts</button></form>
+<form class="inline" method="post" action="/ui/demo/reply"><input type="hidden" name="outbound" value="{{ q.id }}"><input type="hidden" name="what" value="decline"><button>Customer declines</button></form></td></tr>
+{% else %}<tr><td colspan="4">No quote has been sent yet. Approve one on the Approvals page first.</td></tr>{% endfor %}</table>
+
+<h2>3. Production slips</h2>
+<table><tr><th>Order</th><th>Work order</th><th>Product</th><th>State</th><th>Promised</th><th>Forecast</th><th></th></tr>
+{% for w in work_orders %}<tr><td>{{ w.order }}</td><td>{{ w.id }}</td><td>{{ w.product }}</td><td>{{ w.state }}</td><td>{{ w.promised }}</td><td>{{ w.forecast }}</td><td>
+<form class="inline" method="post" action="/ui/demo/slip"><input type="hidden" name="work_order" value="{{ w.id }}">delay by <input name="days" value="3" size="2"> days <button>Slip it</button></form>
+<form class="inline" method="post" action="/ui/demo/recover"><input type="hidden" name="work_order" value="{{ w.id }}"><button>Back on schedule</button></form></td></tr>
+{% else %}<tr><td colspan="7">No confirmed order yet.</td></tr>{% endfor %}</table>
+
+<h2>Mailbox (latest first)</h2>
+<table><tr><th>Direction</th><th>From</th><th>To</th><th>Subject / message</th></tr>
+{% for m in mail %}<tr><td>{{ m.direction }}</td><td>{{ m.from_addr }}</td><td>{{ m.to_addr }}</td><td><b>{{ m.subject }}</b><br><pre style="white-space:pre-wrap;margin:0">{{ m.body }}</pre></td></tr>{% endfor %}</table>
+{% endblock %}

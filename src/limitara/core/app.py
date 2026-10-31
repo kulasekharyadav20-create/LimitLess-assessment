@@ -11,7 +11,7 @@ import threading
 import time
 from contextlib import asynccontextmanager
 from dataclasses import replace
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -40,6 +40,8 @@ from limitara.core.views import builders
 from limitara.core.whatif import what_if
 from limitara.ports import STANDINS, url_of
 
+HEADLINE_TEXT = ("We need 300 of the 50mm flange and 120 of the 80mm flange, both to our Pune warehouse, before the 14th. "
+                 "Last quarter you shipped in two parts and we were charged twice for freight. Send a price that holds if we confirm by Friday.")
 SECRET = os.environ.get("LIMITARA_SECRET", "dev-secret-change-me").encode()
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "views" / "templates"))
 
@@ -416,6 +418,68 @@ def create_app(path: str | None = None, clock: Clock | None = None, clients: Cli
         except (quotes.QuoteError, gate.GateRefused, Unknown) as exc:
             return back(f"/ui/rep/orders/{order}", str(exc))
         return back(f"/ui/rep/orders/{order}", "decision recorded")
+
+    # ---- demo tools: drive the whole flow from the browser (staff only) ------------------
+    def _demo_data() -> dict:
+        people = []
+        for acc in ctx.clients.crm.get("/accounts").data:
+            for c in ctx.clients.crm.get(f"/accounts/{acc['id']}/contacts").data:
+                people.append({"email": c["email"], "label": f"{c['name']} ({acc['name']})" + ("" if c["can_confirm_orders"] else " - cannot confirm orders")})
+        mail = ctx.clients.mailbox.get("/deliveries", limit=500).data[::-1][:25]
+        quotes_sent = []
+        for r in ctx.store.db.query("SELECT * FROM outbound_messages WHERE kind='quote' AND state='sent' ORDER BY id DESC"):
+            refs = __import__("json").loads(r["refs_json"])
+            quotes_sent.append({"id": r["id"], "quotation": refs["quotation_id"], "version": refs["version"], "to": r["to_addr"], "thread": refs.get("thread_id")})
+        wos = []
+        for m in ctx.store.db.query("SELECT order_id FROM orders_meta WHERE state='confirmed'"):
+            for w in ctx.clients.production.get("/work-orders", order_ref=m["order_id"]).data:
+                wos.append({"order": m["order_id"], "id": w["id"], "product": w["product_id"], "state": w["state"], "promised": w["promised_date"], "forecast": w["forecast_finish"]})
+        return {"people": people, "mail": mail, "quotes_sent": quotes_sent, "work_orders": wos, "headline": HEADLINE_TEXT}
+
+    def _inject(email: str, body: str, thread: str, subject: str = "Demo email") -> int:
+        try:
+            customer = ctx.clients.crm.get("/accounts/by-email", email=email).data["id"]
+        except Unknown:
+            customer = "UNKNOWN"
+        n = len(ctx.clients.mailbox.get("/deliveries", limit=1000).data) + 1
+        ctx.clients.mailbox.post("/inbound", json={"message_id": f"<demo-{n}@ui>", "thread_id": thread or f"T-UI-{n}", "customer_id": customer,
+                                                   "subject": subject, "from_addr": email, "body": body})
+        with ctx.lock:
+            return intake.poll(ctx)
+
+    @app.get("/ui/demo", response_class=HTMLResponse)
+    def ui_demo(request: HttpRequest, user: User = Depends(staff)):
+        return page(request, "demo.html", user, **_demo_data())
+
+    @app.post("/ui/demo/send")
+    def ui_demo_send(sender: str = Form(...), body: str = Form(...), thread: str = Form(""), user: User = Depends(staff)):
+        handled = _inject(sender, body, thread)
+        return back("/ui/demo", f"Email sent as {sender} and processed ({handled} message handled). Now check the Approvals page or Cases page.")
+
+    @app.post("/ui/demo/reply")
+    def ui_demo_reply(outbound: str = Form(...), what: str = Form(...), user: User = Depends(staff)):
+        row = ctx.store.db.one("SELECT * FROM outbound_messages WHERE id=?", (outbound,))
+        refs = __import__("json").loads(row["refs_json"])
+        text = {"accept": "Confirmed, go ahead.", "decline": "We decline this quotation, no longer needed."}[what]
+        handled = _inject(row["to_addr"], f"{text} Re: Quotation {refs['quotation_id']} v{refs['version']}", refs.get("thread_id") or "", f"Re: Quotation {refs['quotation_id']}")
+        return back("/ui/demo", f"Customer reply ({what}) sent and processed ({handled} handled). Check the customer's order page or the Cases page.")
+
+    @app.post("/ui/demo/slip")
+    def ui_demo_slip(work_order: str = Form(...), days: int = Form(3), user: User = Depends(staff)):
+        wo = next(w for w in ctx.clients.production.get("/work-orders").data if w["id"] == work_order)
+        late = (date.fromisoformat(wo["promised_date"]) + timedelta(days=days)).isoformat()
+        ctx.clients.production.post(f"/admin/work-orders/{work_order}", json={"forecast_finish": late, "state": "late", "note": "simulated delay"}, method="PATCH")
+        with ctx.lock:
+            created = slips.check_slips(ctx)
+        return back("/ui/demo", f"{work_order} now finishes {late}. {len(created)} new slip(s) detected. See the rep's order page.")
+
+    @app.post("/ui/demo/recover")
+    def ui_demo_recover(work_order: str = Form(...), user: User = Depends(staff)):
+        wo = next(w for w in ctx.clients.production.get("/work-orders").data if w["id"] == work_order)
+        ctx.clients.production.post(f"/admin/work-orders/{work_order}", json={"forecast_finish": wo["promised_date"], "state": "in_progress"}, method="PATCH")
+        with ctx.lock:
+            slips.check_slips(ctx)
+        return back("/ui/demo", f"{work_order} is back on schedule.")
 
     @app.get("/ui/customer", response_class=HTMLResponse)
     def ui_customer(request: HttpRequest, user: User = Depends(customer)):

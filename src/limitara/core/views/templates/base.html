@@ -16,6 +16,6 @@
 </style></head><body>
 <header><strong>Limitara</strong>
 {% if user %}<a href="/ui/{{ 'customer' if user.role=='customer' else ('rep' if user.role=='rep' else 'approvals') }}">Home</a>
-{% if user.is_staff and user.role!='rep' %}<a href="/ui/rep">Cases and orders</a>{% endif %}
+{% if user.is_staff and user.role!='rep' %}<a href="/ui/rep">Cases and orders</a>{% endif %}{% if user.is_staff %}<a href="/ui/demo">Demo tools</a>{% endif %}
 <span class="who">{{ user.name }} ({{ user.role }}) &middot; <a href="/logout">sign out</a></span>{% endif %}</header>
 <main>{% if msg %}<div class="msg">{{ msg }}</div>{% endif %}{% block body %}{% endblock %}</main></body></html>
