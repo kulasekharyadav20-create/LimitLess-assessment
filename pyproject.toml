@@ -28,3 +28,4 @@ packages = ["src/limitara"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning"]
