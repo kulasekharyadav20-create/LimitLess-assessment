@@ -274,7 +274,12 @@ def cancel_order(ctx: Ctx, order_id: str, actor: str) -> str:
     meta = ctx.store.db.one("SELECT * FROM orders_meta WHERE order_id=?", (order_id,))
     if meta is None:
         raise OrderRefused("no such order")
+    if meta["state"] == "cancelled":
+        return "cancelled"
     case = meta["case_id"]
+    gone = [sh["id"] for sh in ctx.clients.dispatch.get("/shipments", order_ref=order_id).data if sh["status"] in ("dispatched", "delivered")]
+    if gone:
+        raise OrderRefused(f"{', '.join(gone)} already left the factory; a cancelled order would still have goods on the road. Handle it as a return")
     for wo in ctx.clients.production.get("/work-orders", order_ref=order_id).data:
         if wo["state"] == "planned":
             ctx.clients.production.post(f"/work-orders/{wo['id']}/cancel", key=f"CANCEL:{order_id}:{wo['id']}")

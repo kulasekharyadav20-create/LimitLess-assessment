@@ -11,6 +11,9 @@
 {% for c in cases %}<tr><td>{{ c.id }}</td><td>{{ c.customer_id }}</td><td>{{ c.status }}</td><td>
 {% for v in c.versions %}<b>{{ c.quotation_id }} v{{ v.version }}</b>: {{ v.status }}
 {% for f in v.flags %}<span class="{{ f.severity }}">[{{ f.code }}]</span> {{ f.detail }}<br>{% endfor %}
+{% if v.status in ('draft','pending_approval','approved','sent') %}
+<form class="inline" method="post" action="/ui/rep/quotes/{{ c.quotation_id }}/{{ v.version }}/quantities"><input name="lines" size="22" placeholder="FL-50=250, FL-80=120"><button>Change quantities (new version)</button></form>
+{% endif %}
 {% if v.status == 'draft' %}
 <form class="inline" method="post" action="/ui/rep/quotes/{{ c.quotation_id }}/{{ v.version }}/submit"><button>Submit for approval</button></form>
 <form class="inline" method="post" action="/ui/rep/quotes/{{ c.quotation_id }}/{{ v.version }}/consent"><button>Record customer consent to split</button></form>

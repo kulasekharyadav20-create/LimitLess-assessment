@@ -121,6 +121,6 @@ docs/design-note.md  docs/sample-run.md                                    the t
   allows `sent -> accepted`. (The design preferred judging by the customer's send time.)
 - **3000 x FL-50** produces no plan within the planning horizon, so the rep gets a task rather than "alternatives". Alternatives
   appear whenever any plan exists (see enquiry 13 and the unit tests).
-- **Order amendments are not built** (cancellation is). The change-request path creates a task for the rep.
+- **Order amendments after acceptance are not built.** Before acceptance a rep (or approver) can change quantities (new version, new approval), and a rep can cancel a confirmed order that has not shipped (button on the order page). A change request in mail creates a task for the rep.
 - Reps see a floor flag without its margin numbers; approvers see them.
 - Authentication is a stub (choose a person); authorisation is real. No authentication between the six programs.

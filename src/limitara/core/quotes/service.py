@@ -99,9 +99,16 @@ def create_quote(ctx: Ctx, qr: QuoteRequest) -> tuple[str, int]:
 
 
 def revise(ctx: Ctx, qid: str, from_version: int, user: User, *, rep_discount_pct: Decimal | None = None,
-           chosen: str | None = None) -> int:
+           chosen: str | None = None, lines: dict[str, int] | None = None) -> int:
     """A new version from an existing one. Frozen versions are never edited."""
     base = load_version(ctx, qid, from_version)
+    if lines is not None:
+        if user.role != "rep" and not user.is_approver:
+            raise QuoteError("only a rep or an approver can change quantities")
+        if base["status"] in ("accepted", "declined", "expired"):
+            raise QuoteError(f"v{from_version} is {base['status']}; quantities can no longer be changed on it. Cancel the order or start a new enquiry")
+        if not lines or any(not isinstance(q, int) or isinstance(q, bool) or q <= 0 for q in lines.values()):
+            raise QuoteError("give at least one product with a whole quantity above zero")
     qr = load_request(ctx, qid, from_version)
     changes = {"created_by": user.id}
     if rep_discount_pct is not None:
@@ -110,6 +117,9 @@ def revise(ctx: Ctx, qid: str, from_version: int, user: User, *, rep_discount_pc
         changes["rep_discount_pct"] = rep_discount_pct
     if chosen is not None:
         changes["chosen"] = chosen
+    if lines is not None:
+        changes["lines"] = tuple(sorted(lines.items()))
+        changes["chosen"] = "default"  # a plan chosen for the old quantities does not fit the new ones
     from dataclasses import replace
     built = build_version(ctx, replace(qr, **changes))
     doc = ctx.clients.erp.post(f"/quotations/{qid}/versions", json=_version_body(built, user.id, from_version),

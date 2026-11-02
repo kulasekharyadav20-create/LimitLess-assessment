@@ -33,7 +33,7 @@ from limitara.core.outbound import gate
 from limitara.core.pricing.engine import price_request
 from limitara.core.promise.model import Request
 from limitara.core.quotes import service as quotes
-from limitara.core.quotes.builder import QuoteRequest, _price_inputs
+from limitara.core.quotes.builder import CannotQuote, QuoteRequest, _price_inputs
 from limitara.core.store import CoreStore
 from limitara.core.users import User, all_users, resolve_user
 from limitara.core.views import builders
@@ -269,6 +269,52 @@ def create_app(path: str | None = None, clock: Clock | None = None, clients: Cli
             return back("/ui/rep", str(exc))
         return back("/ui/rep", f"duplicate {decision}: {result}")
 
+    def _parse_lines(text: str) -> dict[str, int]:
+        """'FL-50=250, FL-80=120' -> {'FL-50': 250, 'FL-80': 120}"""
+        out: dict[str, int] = {}
+        try:
+            for part in text.replace("\n", ",").split(","):
+                if part.strip():
+                    product, qty = part.split("=")
+                    out[product.strip().upper()] = int(qty)
+        except ValueError:
+            raise quotes.QuoteError("write the quantities like FL-50=250, FL-80=120")
+        return out
+
+    class QuantitiesIn(BaseModel):
+        lines: dict[str, int]
+
+    @app.post("/api/rep/quotes/{qid}/{version}/quantities")
+    def api_quantities(qid: str, version: int, body: QuantitiesIn, user: User = Depends(staff)):
+        own_quote(user, qid, version)
+        try:
+            with ctx.lock:
+                new = quotes.revise(ctx, qid, version, user, lines=body.lines)
+        except (quotes.QuoteError, CannotQuote) as exc:
+            raise HTTPException(409, str(getattr(exc, "text", exc)))
+        except Unknown as exc:
+            raise HTTPException(503, str(exc))
+        return {"new_version": new, "next": "review it, then submit for approval"}
+
+    @app.post("/api/rep/orders/{order_id}/cancel")
+    def api_cancel(order_id: str, user: User = Depends(staff)):
+        order_or_404(user, order_id)
+        try:
+            with ctx.lock:
+                return {"result": saga.cancel_order(ctx, order_id, user.id)}
+        except saga.OrderRefused as exc:
+            raise HTTPException(409, str(exc))
+
+    @app.post("/ui/rep/orders/{order_id}/cancel")
+    def ui_cancel(order_id: str, user: User = Depends(staff)):
+        order_or_404(user, order_id)
+        try:
+            with ctx.lock:
+                saga.cancel_order(ctx, order_id, user.id)
+        except saga.OrderRefused as exc:
+            return back(f"/ui/rep/orders/{order_id}", str(exc))
+        return back(f"/ui/rep/orders/{order_id}", "order cancelled; stock, capacity and unstarted shipments were released")
+
     @app.get("/api/rep/alerts")
     def api_alerts(user: User = Depends(staff)):
         return ctx.store.db.query("SELECT * FROM alerts WHERE user_id=? ORDER BY id DESC", (user.id,))
@@ -418,7 +464,7 @@ def create_app(path: str | None = None, clock: Clock | None = None, clients: Cli
         return page(request, "rep.html", user, cases=rows, tasks=api_tasks(user), alerts=api_alerts(user), orders=orders)
 
     @app.post("/ui/rep/quotes/{qid}/{version}/{action}")
-    def ui_rep_action(qid: str, version: int, action: str, pct: str = Form(""), user: User = Depends(staff)):
+    def ui_rep_action(qid: str, version: int, action: str, pct: str = Form(""), lines: str = Form(""), user: User = Depends(staff)):
         try:
             own_quote(user, qid, version)
             with ctx.lock:
@@ -426,12 +472,14 @@ def create_app(path: str | None = None, clock: Clock | None = None, clients: Cli
                     quotes.submit(ctx, qid, version, user.id)
                 elif action == "consent":
                     quotes.record_consent(ctx, qid, version, user)
+                elif action == "quantities":
+                    quotes.revise(ctx, qid, version, user, lines=_parse_lines(lines))
                 elif action == "discount":
                     quotes.revise(ctx, qid, version, user, rep_discount_pct=Decimal(pct))
                 else:
                     raise HTTPException(404)
-        except (quotes.QuoteError, Unknown) as exc:
-            return back("/ui/rep", str(exc))
+        except (quotes.QuoteError, CannotQuote, Unknown) as exc:
+            return back("/ui/rep", str(getattr(exc, "text", exc)))
         return back("/ui/rep", f"{action} done")
 
     @app.get("/ui/rep/orders/{order_id}", response_class=HTMLResponse)

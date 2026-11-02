@@ -1,6 +1,7 @@
 {% extends "base.html" %}{% block body %}
 <h1>{{ o.order }} <small>({{ o.stage }}{% if o.at_risk %}, promise at risk{% endif %})</small></h1>
 <p>Case {{ o.case }}, customer {{ o.customer }}.</p>
+{% if o.stage != 'cancelled' %}<form method="post" action="/ui/rep/orders/{{ o.order }}/cancel" onsubmit="return confirm('Cancel {{ o.order }}? Unstarted work and shipments will be released.')"><button>Cancel this order</button></form>{% endif %}
 {% for s in o.slips %}{% if s.status in ('open','decided_hold','decided_notified') %}
 <div class="note"><b>Slip:</b> {{ s.work_order }} promised {{ s.promised }}, now {{ s.forecast }} ({{ s.status }}).
 <ol>{% for opt in s.options %}<li>{{ opt.label }}{% if opt.delivery %} &mdash; delivers {{ opt.delivery }}, freight Rs {{ opt.freight }}{% endif %}</li>{% endfor %}</ol>

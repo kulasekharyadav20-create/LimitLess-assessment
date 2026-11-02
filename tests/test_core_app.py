@@ -234,3 +234,39 @@ def test_held_duplicate_has_buttons_and_the_rep_can_proceed_or_discard(ctx, web)
     assert web.post(f"/api/tasks/{t['id']}/duplicate/proceed", headers=as_("REP-01")).status_code == 200
     assert web.post(f"/api/tasks/{t['id']}/duplicate/proceed", headers=as_("REP-01")).status_code == 409
     assert len([x for x in ctx.clients.erp.get("/quotations").data if x["id"].startswith("Q-2")]) == 2
+
+
+def test_rep_cancels_an_order_from_the_page_and_everything_is_released(ctx, web, placed):
+    [order] = ctx.clients.erp.get("/sales-orders").data
+    assert "Cancel this order" in web.get(f"/ui/rep/orders/{order['id']}", headers=as_("REP-01")).text
+    assert web.post(f"/api/rep/orders/{order['id']}/cancel", headers=as_("CT-101")).status_code == 403
+    assert web.post(f"/api/rep/orders/{order['id']}/cancel", headers=as_("REP-01")).json() == {"result": "cancelled"}
+    assert web.post(f"/api/rep/orders/{order['id']}/cancel", headers=as_("REP-01")).json() == {"result": "cancelled"}  # repeating is harmless
+    assert ctx.clients.erp.get("/sales-orders").data[0]["status"] == "cancelled"
+    assert all(s["status"] == "cancelled" for s in ctx.clients.dispatch.get("/shipments", order_ref=order["id"]).data)
+    assert "Cancel this order" not in web.get(f"/ui/rep/orders/{order['id']}", headers=as_("REP-01")).text
+
+
+def test_an_order_with_goods_already_dispatched_cannot_be_cancelled(ctx, web, placed):
+    [order] = ctx.clients.erp.get("/sales-orders").data
+    sid = [s for s in ctx.clients.dispatch.get("/shipments", order_ref=order["id"]).data if s["kind"] == "customer"][0]["id"]
+    ctx.clients.dispatch.http.patch(f"/admin/shipments/{sid}", json={"status": "dispatched"})
+    r = web.post(f"/api/rep/orders/{order['id']}/cancel", headers=as_("REP-01"))
+    assert r.status_code == 409 and "already left" in r.json()["detail"]
+    assert ctx.clients.erp.get("/sales-orders").data[0]["status"] != "cancelled"
+
+
+def test_rep_changes_quantities_into_a_new_version_that_needs_approval_again(ctx, web):
+    skip_seeded(ctx)
+    send(ctx, HEADLINE)
+    web.post("/admin/poll", headers=as_("REP-01"))
+    [q] = [x for x in ctx.clients.erp.get("/quotations").data if x["id"].startswith("Q-2")]
+    r = web.post(f"/api/rep/quotes/{q['id']}/1/quantities", headers=as_("REP-01"), json={"lines": {"FL-50": 250, "FL-80": 120}})
+    assert r.status_code == 200 and r.json()["new_version"] == 2
+    doc = load(ctx, q["id"])
+    assert doc["versions"][0]["status"] == "withdrawn"
+    assert sorted((l["product_id"], l["qty"]) for l in doc["versions"][1]["lines"]) == [("FL-50", 250), ("FL-80", 120)]
+    assert web.post(f"/api/rep/quotes/{q['id']}/2/quantities", headers=as_("REP-01"), json={"lines": {"FL-50": 0}}).status_code == 409
+    assert web.post(f"/api/rep/quotes/{q['id']}/2/quantities", headers=as_("CT-101"), json={"lines": {"FL-50": 5}}).status_code == 403
+    r = web.post(f"/ui/rep/quotes/{q['id']}/2/quantities", headers=as_("REP-01"), data={"lines": "FL-50=260, FL-80=120"}, follow_redirects=False)
+    assert r.status_code == 303 and len(load(ctx, q["id"])["versions"]) == 3
